@@ -1,5 +1,7 @@
 # Capítulos
 
+<img alt="Static Badge" src="https://img.shields.io/badge/niche-problems-blue">
+
 Aplicación web para seleccionar capítulos de un PDF y descargarlos en un solo archivo. Usa los marcadores del documento como índice y permite ajustar los intervalos de páginas antes de extraerlos.
 
 [Abrir la aplicación](https://salva1984.github.io/pdf-extract-chapters/)
