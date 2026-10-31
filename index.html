@@ -1,20 +1,106 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>pdf-extract-chapters</title>
+    <meta name="theme-color" content="#f7f9fc" />
+    <meta name="description" content="Selecciona capítulos de tu PDF, ajusta las páginas y descarga solo lo que necesitas." />
+    <title>Capítulos — Extrae lo que necesitas de tu PDF</title>
+    <link rel="preload" href="/fonts/NimbusSans-Regular.woff2" as="font" type="font/woff2" crossorigin />
     <link rel="stylesheet" href="/src/style.css" />
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <div id="app"></div>
-    <label for="fileInput">Choose a PDF file</label>
-    <br />
-    <input type="file" id="fileInput" accept=".pdf" />
-    <br />
-    <div id="output"></div>
-  
+    <main id="app" class="app-shell">
+      <input type="file" id="fileInput" class="visually-hidden" accept=".pdf,application/pdf" />
+      <section id="welcome" class="welcome" aria-labelledby="welcomeTitle">
+        <div class="welcome-copy">
+          <h1 id="welcomeTitle">Quédate con<br />lo que necesitas.</h1>
+          <p>Extrae los capítulos de tu PDF.</p>
+        </div>
+        <label for="fileInput" id="dropzone" class="upload-surface">
+          <svg class="upload-icon" viewBox="0 0 48 56" fill="none" aria-hidden="true"><path d="M9 3h20l11 11v36a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V6a3 3 0 0 1 3-3Z" stroke="currentColor" stroke-width="1.6"/><path d="M28 3v12h12M23 41V25m-6 6 6-6 6 6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span class="upload-copy"><span>Arrástralo o elige un archivo</span></span>
+          <span class="button button-primary upload-action">Elegir PDF <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 14V4m-4 4 4-4 4 4M4 13v3h12v-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </label>
+        <p class="local-note"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor"/><path d="M5 7V5a3 3 0 0 1 6 0v2" stroke="currentColor"/></svg>Tu archivo se queda en tu navegador.</p>
+      </section>
+
+      <div id="status" class="status" role="status" hidden>
+        <span data-status="loading" hidden><span class="loading-indicator" aria-hidden="true"></span>Leyendo tu PDF…</span>
+        <span data-status="invalid-file" hidden>Elige un archivo en formato PDF.</span>
+        <span data-status="load-error" hidden>No se pudo abrir el PDF. Prueba con otro archivo.</span>
+        <span data-status="extract-error" hidden>No se pudo generar el archivo. Intenta descargarlo otra vez.</span>
+      </div>
+
+      <section id="workspace" class="workspace" hidden aria-label="Extraer capítulos del PDF">
+        <div class="file-bar">
+          <span class="file-icon"><svg viewBox="0 0 24 28" fill="none" aria-hidden="true"><path d="M4 1h10l7 7v17a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.5"/><path d="M14 1v8h7M7 15h9M7 19h7" stroke="currentColor" stroke-width="1.5"/></svg></span>
+          <div class="file-info"><h1 id="fileName">Documento PDF</h1><p><span id="pageCount"></span> páginas</p></div>
+          <label for="fileInput" class="change-file">Cambiar PDF</label>
+        </div>
+
+        <div class="work-columns">
+          <section class="outline-panel" aria-labelledby="outlineTitle">
+            <div class="panel-heading"><h2 id="outlineTitle">Capítulos</h2><button type="button" id="selectAllButton" class="text-button"><span id="selectAllLabel">Seleccionar todo</span></button></div>
+            <div class="outline-scroll">
+              <div id="output" class="tree-level"></div>
+              <p id="outlineEmpty" class="outline-empty" hidden>Este PDF no tiene capítulos en su índice. Prueba con otro archivo que tenga marcadores.</p>
+            </div>
+            <div class="outline-actions"><span class="selection-caption"><span id="selectionCount">0</span> seleccionados</span><button type="button" id="extractButton" class="button button-primary" disabled>Extraer capítulos<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M4 5h12M4 10h8M4 15h5m6-3v6m-3-3h6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></button></div>
+          </section>
+
+          <aside class="review-column" aria-labelledby="reviewTitle">
+            <div class="review-heading"><h2 id="reviewTitle">Tu extracción</h2><span id="reviewTotal" class="review-total" hidden></span></div>
+            <div id="reviewEmpty" class="review-empty">
+              <svg viewBox="0 0 80 88" fill="none" aria-hidden="true"><path d="M19 9h40v59H19z" fill="var(--pale-blue)"/><path d="M27 18h39v59H27z" fill="white" stroke="currentColor" stroke-width="1.3"/><path d="M36 33h21M36 40h21M36 47h14" stroke="currentColor" stroke-width="1.3"/><path d="M18 61v14m-7-7h14" stroke="var(--blue)" stroke-width="1.5"/></svg>
+              <p>Los intervalos aparecerán aquí.</p>
+            </div>
+            <section id="extractionReview" hidden aria-label="Intervalos que vas a descargar">
+              <p class="review-hint">Ajusta las páginas antes de descargar.</p>
+              <div id="rangesOutput"></div>
+              <button type="button" id="downloadButton" class="button button-primary download-button">Descargar<span class="button-spinner" aria-hidden="true"></span><svg class="download-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3v10m-4-4 4 4 4-4M4 14v3h12v-3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+              <p id="downloadName" class="download-name"></p>
+              <p id="downloadStatus" class="download-status" role="status" hidden>Archivo descargado.</p>
+            </section>
+          </aside>
+        </div>
+      </section>
+      <a id="downloadLink" href="about:blank" hidden>Descargar PDF</a>
+    </main>
+
+
+
+    <!-- Aviso posterior a la descarga. El formulario cierra el diálogo sin crear HTML en JS. -->
+    <dialog id="downloadReminder" class="download-reminder" aria-labelledby="reminderTitle" aria-describedby="reminderDescription">
+      <h2 id="reminderTitle">¿Una página extra al final?</h2>
+      <p id="reminderDescription">Si el PDF tiene una página extra al final de un intervalo, pulsa «−1 al final» en ese intervalo y vuelve a descargar.</p>
+      <form method="dialog" class="reminder-actions">
+        <button type="submit" value="hide" class="reminder-dismiss">No me recuerdes otra vez</button>
+        <button type="submit" value="close" class="button button-primary" autofocus>Entendido</button>
+      </form>
+    </dialog>
+
+    <!-- Plantillas del índice y de los intervalos preparados. -->
+    <template id="treeItemTemplate"><div class="tree-item"></div></template>
+    <template id="expandableItemTemplate"><details><summary></summary><div class="tree-level"></div></details></template>
+    <template id="sectionControlsTemplate">
+      <input type="checkbox" id="sectionCheckboxTemplate" class="section-checkbox" />
+      <label for="sectionCheckboxTemplate" class="section-title">Capítulo</label>
+      <span class="section-page">p. <span class="page-start"></span></span>
+    </template>
+    <template id="rangeTemplate">
+      <div class="prepared-range">
+        <div class="range-heading"><h3>Intervalo <span class="range-number"></span></h3><span class="range-count"></span></div>
+        <div class="range-editor">
+          <label>Desde<input class="range-start" type="number" min="1" step="1" required /></label>
+          <span class="range-divider" aria-hidden="true">–</span>
+          <label>Hasta<input class="range-end" type="number" min="1" step="1" required /></label>
+          <button type="button" class="trim-end" title="Quitar la última página de este intervalo">−1 al final</button>
+          <span class="range-error" aria-live="polite" hidden>Usa páginas de 1 a <span class="total-pages"></span>, con Desde ≤ Hasta.</span>
+        </div>
+      </div>
+    </template>
   </body>
 </html>

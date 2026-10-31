@@ -1,217 +1,215 @@
 import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
-import { constructOutlineTree, type PDFOutlineItem } from "./pdf";
+import { getElement } from "./dom";
+import { setupDownloadReminder } from "./download-reminder";
+import { bindFileUpload } from "./file-upload";
+import { renderOutline } from "./outline-view";
+import { openPdf, type PDFOutlineItem } from "./pdf";
+import { downloadPdf } from "./pdf-download";
+import { renderRanges, reportRangeValidity } from "./range-view";
+import { mergeRanges, type PageRange } from "./ranges";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
-const input = document.getElementById("fileInput") as HTMLInputElement;
+// Referencias al HTML. La estructura se define en index.html.
+const ui = {
+	app: getElement("#app"),
+	input: getElement<HTMLInputElement>("#fileInput"),
+	welcome: getElement("#welcome"),
+	workspace: getElement("#workspace"),
+	fileName: getElement("#fileName"),
+	pageCount: getElement("#pageCount"),
+	output: getElement("#output"),
+	outlineEmpty: getElement("#outlineEmpty"),
+	selectAllButton: getElement<HTMLButtonElement>("#selectAllButton"),
+	selectAllLabel: getElement("#selectAllLabel"),
+	selectionCount: getElement("#selectionCount"),
+	extractButton: getElement<HTMLButtonElement>("#extractButton"),
+	review: getElement("#extractionReview"),
+	reviewEmpty: getElement("#reviewEmpty"),
+	reviewTotal: getElement("#reviewTotal"),
+	rangesOutput: getElement("#rangesOutput"),
+	downloadButton: getElement<HTMLButtonElement>("#downloadButton"),
+	downloadLink: getElement<HTMLAnchorElement>("#downloadLink"),
+	downloadName: getElement("#downloadName"),
+	downloadStatus: getElement("#downloadStatus"),
+	status: getElement("#status"),
+};
+const statusMessages = ui.status.querySelectorAll<HTMLElement>("[data-status]");
+const showDownloadReminder = setupDownloadReminder();
 
-let tree: PDFOutlineItem[] = [];
+// Solo conservamos el PDF y los intervalos preparados para descargar.
+// La selección se consulta directamente en los checkboxes.
+let preparedRanges: PageRange[] = [];
+let pdf: pdfjsLib.PDFDocumentProxy | undefined;
+let originalFileName = "";
+let busy = false;
 
-input.addEventListener("change", async (event) => {
-	const file = (event.target as HTMLInputElement).files?.[0];
+// Estado de la interfaz.
+function showStatus(message: string) {
+	ui.status.hidden = !message;
+	for (const element of statusMessages)
+		element.hidden = element.dataset.status !== message;
+}
 
-	if (!file) {
-		console.error("No file selected");
-		return;
-	}
+function setBusy(isBusy: boolean) {
+	busy = isBusy;
+	ui.input.disabled = isBusy;
+	ui.downloadButton.disabled = isBusy;
+	ui.app.setAttribute("aria-busy", String(isBusy));
+	updateSelection();
+}
 
+function updateSelection() {
+	const fields = getCheckboxes();
+	const checked = fields.filter((field) => field.checked).length;
+	ui.selectionCount.textContent = String(getSelectedCheckboxes().length);
+	ui.selectAllLabel.textContent =
+		checked && checked === fields.length
+			? "Quitar selección"
+			: "Seleccionar todo";
+	ui.selectAllButton.disabled = busy || !fields.length;
+	ui.extractButton.disabled = busy || !pdf || !checked;
+}
+
+function updateReviewTotal() {
+	const total = mergeRanges(preparedRanges).reduce(
+		(sum, range) => sum + range.end - range.start + 1,
+		0,
+	);
+	ui.reviewTotal.textContent = `${total} ${total === 1 ? "página" : "páginas"}`;
+}
+
+// Carga y sustitución del PDF.
+function resetWorkspace() {
+	preparedRanges = [];
+	ui.output.replaceChildren();
+	ui.rangesOutput.replaceChildren();
+	ui.workspace.hidden = true;
+	ui.review.hidden = true;
+	ui.downloadStatus.hidden = true;
+	ui.reviewEmpty.hidden = false;
+	ui.reviewTotal.hidden = true;
+}
+
+function showLoadedFile(
+	file: File,
+	pdf: pdfjsLib.PDFDocumentProxy,
+	tree: PDFOutlineItem[],
+) {
+	originalFileName = file.name;
+	renderOutline(ui.output, tree, updateSelection);
+	ui.fileName.textContent = file.name;
+	ui.fileName.title = file.name;
+	ui.downloadName.textContent = file.name;
+	ui.pageCount.textContent = String(pdf.numPages);
+	ui.outlineEmpty.hidden = tree.length > 0;
+	ui.welcome.hidden = true;
+	ui.workspace.hidden = false;
+	showStatus("");
+}
+
+async function loadFile(file: File) {
+	setBusy(true);
+	resetWorkspace();
+	const previousPdf = pdf;
+	pdf = undefined;
+	showStatus("loading");
 	try {
-		const arrayBuffer: ArrayBuffer = await file.arrayBuffer();
-
-		const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
-		const outline = await pdf.getOutline();
-
-		tree = await constructOutlineTree(outline || [], pdf);
-
-		console.log("Constructed tree:", tree);
+		await previousPdf?.loadingTask.destroy();
+		const loaded = await openPdf(file);
+		pdf = loaded.pdf;
+		showLoadedFile(file, pdf, loaded.tree);
 	} catch (error) {
 		console.error("Error reading PDF file:", error);
+		await pdf?.loadingTask.destroy();
+		pdf = undefined;
+		ui.welcome.hidden = false;
+		showStatus("load-error");
+	} finally {
+		setBusy(false);
 	}
-	const output = document.getElementById("output");
-
-	if (output) {
-		output.innerHTML = ""; // Clear previous content
-		const treeView = createTreeView(tree);
-		output.appendChild(treeView);
-	}
-});
-
-function createTreeView(tree: PDFOutlineItem[]): HTMLElement {
-	const out = document.createElement("div");
-	out.className = "tree-level";
-
-	for (const item of tree) {
-		// If the item has children, create an expandable item
-		if (item.items && item.items.length > 0) {
-			renderExpandableItem(item, out);
-		} else {
-			// If the item has no children, create a simple tree item
-			renderTreeItem(item, out);
-		}
-	}
-	return out;
 }
 
-function renderTreeItem(item: PDFOutlineItem, out: HTMLDivElement) {
-	const div = document.createElement("div");
-	div.className = "tree-item";
-	div.textContent = ` ${item.title} - Página: ${item.start + 1}`;
-	const checkbox = createCheckbox(item);
-	div.prepend(checkbox);
-	out.appendChild(div);
-}
-
-function renderExpandableItem(item: PDFOutlineItem, out: HTMLDivElement) {
-	const summary = document.createElement("summary");
-	summary.textContent = ` ${item.title} - Página: ${item.start + 1}`;
-	const checkbox = createCheckbox(item);
-	summary.prepend(checkbox);
-
-	const details = document.createElement("details");
-	details.appendChild(summary);
-
-	// Recursively create the tree view for child items
-	const childTreeView = createTreeView(item.items || []);
-
-	details.appendChild(childTreeView);
-	out.appendChild(details);
-}
-
-function createCheckbox(item: PDFOutlineItem): HTMLInputElement {
-	const checkbox = document.createElement("input");
-	checkbox.type = "checkbox";
-	checkbox.addEventListener("change", () => {
-		const summary = checkbox.closest("summary");
-
-
-		// Si no es un nodo expandible, no hay hijos que modificar.
-		if (!summary) {
-			uncheckParentFromLeaf(checkbox);
-			return;
-		};
-
-		if (!checkbox.checked) {
-			uncheckParentFromNode(checkbox);
-		}
-
-		// El padre directo del summary debe ser un details.
-		const details = summary.parentElement;
-
-		if (details instanceof HTMLDetailsElement) {
-			checkChildCheckboxes(details, checkbox.checked);
-		}
-	});
-	return checkbox;
-}
-
-function checkChildCheckboxes(parent: HTMLElement, isChecked: boolean) {
-	const childCheckboxes = parent.querySelectorAll<HTMLInputElement>(
-		"input[type='checkbox']",
+// Selección del índice y preparación de los intervalos editables.
+function getCheckboxes(): HTMLInputElement[] {
+	return Array.from(
+		ui.output.querySelectorAll<HTMLInputElement>(".section-checkbox"),
 	);
-	childCheckboxes.forEach((checkbox) => {
-		if (!isChecked) {
-			checkbox.indeterminate = false;
-		}
-		checkbox.checked = isChecked;
+}
+
+function getSelectedCheckboxes(): HTMLInputElement[] {
+	return getCheckboxes().filter((checkbox) => {
+		if (!checkbox.checked) return false;
+		// Un capítulo marcado ya incluye sus subsecciones.
+		const parent = checkbox.closest(".tree-level")?.closest("details");
+		return !parent?.querySelector(
+			":scope > summary > .section-checkbox:checked",
+		);
 	});
 }
 
-function uncheckParentFromNode(checkbox: HTMLInputElement) {
-	let parentDetails = checkbox.closest("details")?.parentElement;
+function toggleAllChapters() {
+	const fields = getCheckboxes();
+	const checkAll = !fields.every((field) => field.checked);
+	for (const field of fields) {
+		field.checked = checkAll;
+		field.indeterminate = false;
+	}
+	// Un solo evento actualiza las casillas de padres e hijos.
+	fields[0]?.dispatchEvent(new Event("change", { bubbles: true }));
+}
 
-	while (parentDetails) {
-		const parentSummaryCheckbox = parentDetails.querySelector<HTMLInputElement>(
-			":scope > summary > input[type='checkbox']"
-		);
-
-		if (parentSummaryCheckbox) {
-			if (parentSummaryCheckbox.checked) {
-				parentSummaryCheckbox.checked = false;
-				parentSummaryCheckbox.indeterminate = true;
-			}
-		};
-
-		// traverse up the tree
-		parentDetails = parentDetails.parentElement?.closest("details") ?? null;
+function prepareExtraction() {
+	if (!pdf || busy) return;
+	preparedRanges = mergeRanges(
+		getSelectedCheckboxes().map((checkbox) => ({
+			start: Number(checkbox.dataset.start),
+			end: Number(checkbox.dataset.end),
+		})),
+	);
+	const hasRanges = preparedRanges.length > 0;
+	ui.review.hidden = !hasRanges;
+	ui.reviewEmpty.hidden = hasRanges;
+	ui.reviewTotal.hidden = !hasRanges;
+	ui.downloadStatus.hidden = true;
+	renderRanges(
+		ui.rangesOutput,
+		preparedRanges,
+		pdf.numPages,
+		updateReviewTotal,
+	);
+	updateReviewTotal();
+	showStatus("");
+	if (hasRanges && window.matchMedia("(max-width: 760px)").matches) {
+		ui.review.scrollIntoView({ behavior: "instant", block: "start" });
 	}
 }
 
-function uncheckParentFromLeaf(checkbox: HTMLInputElement) {
-	let parentDetails = checkbox.closest("details");
-	const isChecked = checkbox.checked;
-
-	while (parentDetails) {
-		const parentSummaryCheckbox = parentDetails.querySelector<HTMLInputElement>(
-			":scope > summary > input[type='checkbox']"
-		);
-
-		const parentSiblingCheckboxes = parentDetails.querySelectorAll<HTMLInputElement>(
-			":scope > div input[type='checkbox']"
-		);
-
-		let siblingCheckboxes = Array.from(parentSiblingCheckboxes)
-		
-		// console.log("parentscbk", parentSiblingCheckboxes)
-
-		if (parentSummaryCheckbox) {
-			if (!isChecked) {
-				parentSummaryCheckbox.checked = false;
-				parentSummaryCheckbox.indeterminate = true;
-			} else if (areAllSiblingsChecked(siblingCheckboxes)) {
-				parentSummaryCheckbox.checked = true;
-				parentSummaryCheckbox.indeterminate = false;
-			};
-
-		};
-
-		// traverse up the tree
-		parentDetails = parentDetails.parentElement?.closest("details") ?? null;
+// Descarga y recordatorio. El aviso solo aparece si se generó el archivo.
+async function downloadExtraction() {
+	if (busy || !pdf || !preparedRanges.length) return;
+	if (!reportRangeValidity(ui.rangesOutput)) return;
+	setBusy(true);
+	ui.downloadStatus.hidden = true;
+	let downloaded = false;
+	try {
+		await downloadPdf(pdf, preparedRanges, originalFileName, ui.downloadLink);
+		showStatus("");
+		ui.downloadStatus.hidden = false;
+		downloaded = true;
+	} catch (error) {
+		console.error("Error extracting PDF pages:", error);
+		showStatus("extract-error");
+	} finally {
+		setBusy(false);
 	}
+	// Abrimos el diálogo después de reactivar el botón para restaurar su foco al cerrar.
+	if (downloaded) showDownloadReminder();
 }
 
-function areAllSiblingsChecked(checkboxes: HTMLInputElement[]): boolean {
-	return checkboxes.length > 0 && checkboxes.every(checkbox => checkbox.checked)
-}
-
-function updateParentCheckboxes(checkbox: HTMLInputElement) {
-	// Si el checkbox pertenece a un summary, su propio
-	// details no debe considerarse un ancestro lógico.
-	const ownDetails = checkbox.closest("summary")
-		?.closest("details");
-
-	let parentDetails = ownDetails
-		? ownDetails.parentElement?.closest("details")
-		: checkbox.closest("details");
-
-	while (parentDetails) {
-		const parentCheckbox =
-			parentDetails.querySelector<HTMLInputElement>(
-				":scope > summary > input[type='checkbox']"
-			);
-
-		const childCheckboxes =
-			parentDetails.querySelectorAll<HTMLInputElement>(
-				":scope > .tree-level input[type='checkbox']"
-			);
-
-		if (parentCheckbox) {
-			const children = Array.from(childCheckboxes);
-
-			const allChecked =
-				children.length > 0 &&
-				children.every(cb => cb.checked);
-
-			const someChecked =
-				children.some(cb => cb.checked || cb.indeterminate);
-
-			parentCheckbox.checked = allChecked;
-			parentCheckbox.indeterminate = someChecked && !allChecked;
-		}
-
-		// Continuar hacia el siguiente ancestro
-		parentDetails =
-			parentDetails.parentElement?.closest("details") ?? null;
-	}
-  }
+// Conexión de eventos: las funciones anteriores contienen el comportamiento.
+bindFileUpload(ui.input, ui.app, loadFile, () => showStatus("invalid-file"));
+ui.selectAllButton.addEventListener("click", toggleAllChapters);
+ui.extractButton.addEventListener("click", prepareExtraction);
+ui.downloadButton.addEventListener("click", downloadExtraction);
