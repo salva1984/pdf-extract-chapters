@@ -1,0 +1,22 @@
+{
+	"name": "pdf-extract-chapters",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "tsc && vite build",
+		"preview": "vite preview",
+		"lint": "biome check .",
+		"lint:fix": "biome check --write .",
+		"typecheck": "tsc --noEmit"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.5.15",
+		"typescript": "~6.0.2",
+		"vite": "^8.3.0"
+	},
+	"dependencies": {
+		"pdfjs-dist": "^6.4.299"
+	}
+}

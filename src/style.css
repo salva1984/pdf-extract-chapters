@@ -1,0 +1,10 @@
+details > .tree-level {
+	padding-left: 20px;
+	border-left: 1px solid #ccc;
+	cursor: pointer;
+}
+
+.tree-item {
+	padding-left: 15px;
+	cursor: pointer;
+}
