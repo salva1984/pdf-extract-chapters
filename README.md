@@ -2,7 +2,9 @@
 
 Aplicación web para seleccionar capítulos de un PDF y descargarlos en un solo archivo. Usa los marcadores del documento como índice y permite ajustar los intervalos de páginas antes de extraerlos.
 
-El procesamiento se realiza en el navegador: el PDF no se sube a un servidor.
+[Abrir la aplicación](https://salva1984.github.io/pdf-extract-chapters/)
+
+Local first, ningun dato sale de tu navegador.
 
 ## Funciones
 
@@ -44,7 +46,6 @@ Si cambias la selección del índice, pulsa otra vez **Extraer capítulos** para
 - Los intervalos se ordenan y se unen antes de descargar. No se conserva un orden de selección personalizado ni se generan archivos separados por capítulo.
 - El tamaño de los documentos que se pueden procesar depende de la memoria disponible en el navegador.
 
-La preferencia para ocultar el recordatorio se guarda en `localStorage`. Si el navegador bloquea ese almacenamiento, se conserva solo durante la sesión de la aplicación.
 
 ## Comandos
 
@@ -86,3 +87,9 @@ El proyecto utiliza TypeScript, Vite y PDF.js, sin un framework de interfaz.
 | `src/style.css` | Estilos y adaptación a pantallas pequeñas. |
 
 Las fuentes Nimbus Sans se incluyen en `public/fonts/`, junto con sus archivos de licencia.
+
+## Licencia
+
+El código propio del proyecto se distribuye bajo la [licencia MIT](LICENSE).
+
+Las dependencias y los recursos de terceros conservan sus licencias originales. Las fuentes Nimbus Sans se distribuyen bajo AGPL-3.0 con la excepción indicada en [public/fonts/LICENSE.txt](public/fonts/LICENSE.txt); el texto completo está en [public/fonts/COPYING](public/fonts/COPYING).
